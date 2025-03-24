@@ -1,69 +1,114 @@
-import time
+import cv2 as cv
 
-import cv2
+def extract_center_region():
+    image = cv.imread('variant-8.jpg')
+    if image is None:
+        print("Не удалось загрузить изображение.")
+        return
 
+    h, w = image.shape[:2]
+    crop_dim = 400
+    x0 = w // 2 - crop_dim // 2
+    y0 = h // 2 - crop_dim // 2
+    cropped = image[y0:y0 + crop_dim, x0:x0 + crop_dim]
 
-def image_processing():
-    img = cv2.imread('img_test.jpg')
-    #cv2.imshow('image', img)
-    w, h = img.shape[:2]
-    #(cX, cY) = (w // 2, h // 2)
-    #M = cv2.getRotationMatrix2D((cX, cY), 45, 1.0)
-    #rotated = cv2.warpAffine(img, M, (w, h))
-    #cv2.imshow('rotated', rotated)
+    cv.imwrite('cropped_image.jpg', cropped)
+    print("Файл 'cropped_image.jpg' сохранён.")
 
-    #cat = img[250:580, 20:280]
-    #cv2.imshow('image', cat)
-
-    #r = cv2.selectROI(img)
-    #image_cropped = img[int(r[1]):int(r[1] + r[3]), int(r[0]):int(r[0] + r[2])]
-    #cv2.imshow('cropped', image_cropped)
-
-    cv2.line(img, (0, 0), (580, 600), (255, 0, 0), 5)
-    cv2.rectangle(img, (384, 10), (580, 128), (0, 252, 0), 3)
-    cv2.putText(img, 'Lab. No 8', (10, 500), cv2.FONT_HERSHEY_SIMPLEX, 3,
-                (0, 0, 255), 2, cv2.LINE_AA)
-    cv2.imshow('img', img)
+    cv.imshow('Оригинал', image)
+    cv.imshow('Обрезка', cropped)
+    cv.waitKey(0)
+    cv.destroyAllWindows()
 
 
-def video_processing():
-    cap = cv2.VideoCapture(1)
-    down_points = (640, 480)
-    i = 0
+def track_largest_object(camera_index=2):
+    capture = cv.VideoCapture(camera_index)
+    target_size = (640, 480)
+
     while True:
-        ret, frame = cap.read()
-        if not ret:
+        success, frame = capture.read()
+        if not success:
+            print("Не удалось получить кадр.")
             break
 
-        frame = cv2.resize(frame, down_points, interpolation=cv2.INTER_LINEAR)
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        gray = cv2.GaussianBlur(gray, (21, 21), 0)
-        ret, thresh = cv2.threshold(gray, 110, 255, cv2.THRESH_BINARY_INV)
+        frame = cv.resize(frame, target_size)
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        blurred = cv.GaussianBlur(gray, (7, 7), 0)
+        _, binary = cv.threshold(blurred, 110, 255, cv.THRESH_BINARY_INV)
 
-        contours, hierarchy = cv2.findContours(thresh,
-                            cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-        if len(contours) > 0:
-            c = max(contours, key=cv2.contourArea)
-            x, y, w, h = cv2.boundingRect(c)
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-            if i % 5 == 0:
-                a = x + (w // 2)
-                b = y + (h // 2)
-                print(a, b)
+        contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        if contours:
+            contour = max(contours, key=cv.contourArea)
+            moment = cv.moments(contour)
+            if moment["m00"] != 0:
+                cx = int(moment["m10"] / moment["m00"])
+                cy = int(moment["m01"] / moment["m00"])
 
-        cv2.imshow('frame', frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+                cv.line(frame, (cx, 0), (cx, frame.shape[0]), (0, 255, 0), 2)
+                cv.line(frame, (0, cy), (frame.shape[1], cy), (0, 255, 0), 2)
+                cv.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+
+        cv.imshow('Видео', frame)
+        if cv.waitKey(1) & 0xFF == ord('q'):
             break
 
-        time.sleep(0.1)
-        i += 1
+    capture.release()
+    cv.destroyAllWindows()
 
-    cap.release()
+
+def follow_with_fly(camera_index=2):
+    capture = cv.VideoCapture(camera_index)
+    target_size = (640, 480)
+
+    fly = cv.imread('fly64.png', cv.IMREAD_UNCHANGED)
+    if fly is None:
+        print("Файл 'fly64.png' не найден.")
+        return
+
+    if fly.shape[2] == 4:
+        bgr = cv.cvtColor(fly, cv.COLOR_BGRA2BGR)
+    else:
+        bgr = fly
+    fly_resized = cv.resize(bgr, (32, 32))
+
+    while True:
+        success, frame = capture.read()
+        if not success:
+            print("Ошибка захвата кадра.")
+            break
+
+        frame = cv.resize(frame, target_size)
+        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        blurred = cv.GaussianBlur(gray, (7, 7), 0)
+        _, binary = cv.threshold(blurred, 110, 255, cv.THRESH_BINARY_INV)
+
+        contours, _ = cv.findContours(binary, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+        if contours:
+            contour = max(contours, key=cv.contourArea)
+            moment = cv.moments(contour)
+            if moment["m00"] != 0:
+                cx = int(moment["m10"] / moment["m00"])
+                cy = int(moment["m01"] / moment["m00"])
+
+                cv.line(frame, (cx, 0), (cx, frame.shape[0]), (0, 255, 0), 2)
+                cv.line(frame, (0, cy), (frame.shape[1], cy), (0, 255, 0), 2)
+
+                fh, fw = fly_resized.shape[:2]
+                x1, y1 = cx - fw // 2, cy - fh // 2
+                x2, y2 = x1 + fw, y1 + fh
+
+                if 0 <= x1 and x2 <= frame.shape[1] and 0 <= y1 and y2 <= frame.shape[0]:
+                    frame[y1:y2, x1:x2] = fly_resized
+
+        cv.imshow('Fly Tracker', frame)
+        if cv.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    capture.release()
+    cv.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    #image_processing()
-    video_processing()
-
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    extract_center_region()
+    # track_largest_object()
+    # follow_with_fly()
